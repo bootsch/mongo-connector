@@ -213,6 +213,12 @@ class OplogThread(threading.Thread):
             remove_inc = 0
             upsert_inc = 0
             update_inc = 0
+
+            # PreSeries (batch inserts and remove)
+            last_ns = None
+            last_op = None
+            current_batch = []
+
             try:
                 LOG.debug("OplogThread: about to process new oplog entries")
                 while cursor.alive and self.running:
@@ -246,12 +252,59 @@ class OplogThread(threading.Thread):
 
                                 # Remove
                                 if operation == 'd':
-                                    docman.remove(
-                                        entry['o']['_id'], ns, timestamp)
+
+                                    # PreSeries
+                                    if last_op and \
+                                            (last_op != operation or
+                                             n % self.batch_size == 0) and \
+                                            len(current_batch) > 0:
+                                        LOG.debug(
+                                            "Executing bulk with [%d] "
+                                            "documents. Current and last "
+                                            "operations [%s] / [%s]" %
+                                            (len(current_batch),
+                                             operation,
+                                             last_op))
+
+                                        self.execute_bulk(docman,
+                                                          last_op,
+                                                          current_batch,
+                                                          last_ns,
+                                                          last_ts)
+                                        current_batch = []
+
+                                    last_op = operation
+                                    last_ns = ns
+
+                                    current_batch.append(entry['o']['_id'])
                                     remove_inc += 1
 
-                                # Insert
-                                elif operation == 'i':  # Insert
+                                # Insert or Update
+                                elif operation == 'i' or operation == 'u':
+
+                                    # PreSeries
+                                    if last_op and \
+                                            (is_gridfs_file or
+                                             last_op != operation or
+                                             n % self.batch_size == 0) and \
+                                            len(current_batch) > 0:
+                                        LOG.debug(
+                                            "Executing bulk with [%d] "
+                                            "documents. Current and last "
+                                            "operations [%s] / [%s]" %
+                                            (len(current_batch),
+                                             operation,
+                                             last_op))
+                                        self.execute_bulk(docman,
+                                                          last_op,
+                                                          current_batch,
+                                                          last_ns,
+                                                          last_ts)
+                                        current_batch = []
+
+                                    last_op = operation
+                                    last_ns = ns
+
                                     # Retrieve inserted document from
                                     # 'o' field in oplog record
                                     doc = entry.get('o')
@@ -264,18 +317,34 @@ class OplogThread(threading.Thread):
                                         docman.insert_file(
                                             gridfile, ns, timestamp)
                                     else:
-                                        docman.upsert(doc, ns, timestamp)
-                                    upsert_inc += 1
+                                        current_batch.append(doc)
 
-                                # Update
-                                elif operation == 'u':
-                                    docman.update(entry['o2']['_id'],
-                                                  entry['o'],
-                                                  ns, timestamp)
-                                    update_inc += 1
+                                    upsert_inc += 1
 
                                 # Command
                                 elif operation == 'c':
+                                    # PreSeries
+                                    if last_op and \
+                                            (last_op != operation or
+                                             n % self.batch_size == 0) and \
+                                            len(current_batch) > 0:
+                                        LOG.debug(
+                                            "Executing bulk with [%d] "
+                                            "documents. Current and last "
+                                            "operations [%s] / [%s]" %
+                                            (len(current_batch),
+                                             operation,
+                                             last_op))
+                                        self.execute_bulk(docman,
+                                                          last_op,
+                                                          current_batch,
+                                                          last_ns,
+                                                          last_ts)
+                                        current_batch = []
+
+                                    last_op = operation
+                                    last_ns = ns
+
                                     # use unmapped namespace
                                     doc = entry.get('o')
                                     docman.handle_command(doc,
@@ -320,6 +389,15 @@ class OplogThread(threading.Thread):
                     "Cursor closed due to an exception. "
                     "Will attempt to reconnect.")
 
+            if len(current_batch) > 0:
+                LOG.debug("Executing last bulk of the last iteration")
+                for docman in self.doc_managers:
+                    self.execute_bulk(docman,
+                                      last_op,
+                                      current_batch,
+                                      last_ns,
+                                      last_ts)
+
             # update timestamp before attempting to reconnect to MongoDB,
             # after being join()'ed, or if the cursor closes
             if last_ts is not None:
@@ -332,6 +410,19 @@ class OplogThread(threading.Thread):
                       "upserted: %d, updated: %d"
                       % (remove_inc, upsert_inc, update_inc))
             time.sleep(2)
+
+    def execute_bulk(self, docman, operation, data, ns, timestamp):
+        LOG.debug("Executing bulk with [%d] documents. Operation: [%s] "
+                  % (len(data), operation))
+
+        try:
+            if operation == 'd':
+                docman.remove(data, ns, timestamp)
+            elif operation == 'i':
+                docman.bulk_upsert(data, ns, timestamp)
+        except Exception as e:
+            LOG.error("Failed to execute bulk")
+            raise e
 
     def join(self):
         """Stop this thread from managing the oplog.
