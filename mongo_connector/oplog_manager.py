@@ -282,13 +282,13 @@ class OplogThread(threading.Thread):
                                     current_batch.append(entry['o']['_id'])
                                     remove_inc += 1
 
-                                # Insert or Update
-                                elif operation == 'i' or operation == 'u':
+                                # Insert
+                                elif operation == 'i':
 
                                     # PreSeries
                                     if last_op and \
                                             (is_gridfs_file or
-                                             last_op not in ['i', 'u'] or
+                                             last_op != operation or
                                              last_ns != ns or
                                              n % self.batch_size == 0) and \
                                             len(current_batch) > 0:
@@ -325,6 +325,40 @@ class OplogThread(threading.Thread):
                                         current_batch.append(doc)
 
                                     upsert_inc += 1
+
+                                # Update
+                                elif operation == 'u':
+
+                                    # PreSeries
+                                    if last_op and \
+                                            (is_gridfs_file or
+                                             last_op != operation or
+                                             last_ns != ns or
+                                             n % self.batch_size == 0) and \
+                                            len(current_batch) > 0:
+                                        LOG.debug(
+                                            "Executing bulk with [%d] "
+                                            "documents. Current and last "
+                                            "operations [%s] / [%s]" %
+                                            (len(current_batch),
+                                             operation,
+                                             last_op))
+                                        self.execute_bulk(docman,
+                                                          last_op,
+                                                          current_batch,
+                                                          last_ns,
+                                                          last_timestamp)
+                                        current_batch = []
+
+                                    last_op = operation
+                                    last_timestamp = timestamp
+                                    last_ns = ns
+
+                                    current_batch.append({
+                                        "_id": entry['o2']['_id'],
+                                        "update_spec": entry['o']})
+
+                                    update_inc += 1
 
                                 # Command
                                 elif operation == 'c':
