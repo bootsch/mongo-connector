@@ -461,7 +461,8 @@ class OplogThread(threading.Thread):
             elif operation in ['i', 'u']:
                 docman.bulk_upsert(data, ns, timestamp)
         except Exception as e:
-            LOG.error("Failed to execute bulk with %d elements" % (len(data)))
+            LOG.exception(
+                "Failed to execute bulk with %d elements" % (len(data)))
             raise e
 
     def join(self):
