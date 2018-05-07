@@ -458,7 +458,7 @@ class OplogThread(threading.Thread):
         try:
             if operation == 'd':
                 docman.remove(data, ns, timestamp)
-            elif operation == 'i':
+            elif operation in ['i', 'u']:
                 docman.bulk_upsert(data, ns, timestamp)
         except Exception as e:
             LOG.error("Failed to execute bulk with %d elements" % (len(data)))
