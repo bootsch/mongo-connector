@@ -275,6 +275,7 @@ class OplogThread(threading.Thread):
                                         current_batch = []
 
                                     last_op = operation
+                                    last_ts = timestamp
                                     last_ns = ns
 
                                     current_batch.append(entry['o']['_id'])
@@ -286,7 +287,7 @@ class OplogThread(threading.Thread):
                                     # PreSeries
                                     if last_op and \
                                             (is_gridfs_file or
-                                             last_op != operation or
+                                             last_op not in ['i', 'u'] or
                                              last_ns != ns or
                                              n % self.batch_size == 0) and \
                                             len(current_batch) > 0:
@@ -305,6 +306,7 @@ class OplogThread(threading.Thread):
                                         current_batch = []
 
                                     last_op = operation
+                                    last_ts = timestamp
                                     last_ns = ns
 
                                     # Retrieve inserted document from
@@ -345,6 +347,7 @@ class OplogThread(threading.Thread):
                                         current_batch = []
 
                                     last_op = operation
+                                    last_ts = timestamp
                                     last_ns = ns
 
                                     # use unmapped namespace
@@ -423,7 +426,7 @@ class OplogThread(threading.Thread):
             elif operation == 'i':
                 docman.bulk_upsert(data, ns, timestamp)
         except Exception as e:
-            LOG.error("Failed to execute bulk")
+            LOG.error("Failed to execute bulk with %d elements" % (len(data)))
             raise e
 
     def join(self):
