@@ -215,6 +215,7 @@ class OplogThread(threading.Thread):
             update_inc = 0
 
             # PreSeries (batch inserts and remove)
+            last_timestamp = None
             last_ns = None
             last_op = None
             current_batch = []
@@ -271,11 +272,11 @@ class OplogThread(threading.Thread):
                                                           last_op,
                                                           current_batch,
                                                           last_ns,
-                                                          last_ts)
+                                                          last_timestamp)
                                         current_batch = []
 
                                     last_op = operation
-                                    last_ts = timestamp
+                                    last_timestamp = timestamp
                                     last_ns = ns
 
                                     current_batch.append(entry['o']['_id'])
@@ -302,11 +303,11 @@ class OplogThread(threading.Thread):
                                                           last_op,
                                                           current_batch,
                                                           last_ns,
-                                                          last_ts)
+                                                          last_timestamp)
                                         current_batch = []
 
                                     last_op = operation
-                                    last_ts = timestamp
+                                    last_timestamp = timestamp
                                     last_ns = ns
 
                                     # Retrieve inserted document from
@@ -343,11 +344,11 @@ class OplogThread(threading.Thread):
                                                           last_op,
                                                           current_batch,
                                                           last_ns,
-                                                          last_ts)
+                                                          last_timestamp)
                                         current_batch = []
 
                                     last_op = operation
-                                    last_ts = timestamp
+                                    last_timestamp = timestamp
                                     last_ns = ns
 
                                     # use unmapped namespace
