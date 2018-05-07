@@ -256,7 +256,8 @@ class OplogThread(threading.Thread):
                                     # PreSeries
                                     if last_op and \
                                             (last_op != operation or
-                                             n % self.batch_size == 0) and \
+                                             last_ns != ns or
+                                             n % self.batch_size == 0 ) and \
                                             len(current_batch) > 0:
                                         LOG.debug(
                                             "Executing bulk with [%d] "
@@ -286,6 +287,7 @@ class OplogThread(threading.Thread):
                                     if last_op and \
                                             (is_gridfs_file or
                                              last_op != operation or
+                                             last_ns != ns or
                                              n % self.batch_size == 0) and \
                                             len(current_batch) > 0:
                                         LOG.debug(
