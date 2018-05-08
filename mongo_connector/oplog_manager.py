@@ -436,7 +436,7 @@ class OplogThread(threading.Thread):
                                       last_op,
                                       current_batch,
                                       last_ns,
-                                      timestamp)
+                                      last_timestamp)
 
             # update timestamp before attempting to reconnect to MongoDB,
             # after being join()'ed, or if the cursor closes
