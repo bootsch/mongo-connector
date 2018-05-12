@@ -263,7 +263,7 @@ class OplogThread(threading.Thread):
                                              last_ns != ns or
                                              current_doc_id in
                                                 current_doc_ids or
-                                             n % self.batch_size == 0 ) and \
+                                             n % self.batch_size == 0) and \
                                             len(current_batch) > 0:
                                         LOG.debug(
                                             "Executing bulk with [%d] "
