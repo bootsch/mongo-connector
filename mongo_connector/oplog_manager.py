@@ -391,12 +391,14 @@ class OplogThread(threading.Thread):
                                             (len(current_batch),
                                              operation,
                                              last_op))
+
                                         self.execute_bulk(docman,
                                                           last_op,
                                                           current_batch,
                                                           last_ns,
                                                           last_timestamp)
                                         current_batch = []
+                                        current_doc_ids = []
 
                                     last_op = operation
                                     last_timestamp = timestamp
@@ -408,14 +410,16 @@ class OplogThread(threading.Thread):
                                                           entry['ns'],
                                                           timestamp)
 
-                            except errors.OperationFailed:
+                            except errors.OperationFailed as ex:
                                 LOG.exception(
                                     "Unable to process oplog document %r"
                                     % entry)
-                            except errors.ConnectionFailed:
+                                raise ex
+                            except errors.ConnectionFailed as ex:
                                 LOG.exception(
                                     "Connection failed while processing oplog "
                                     "document %r" % entry)
+                                raise ex
 
                         if (remove_inc + upsert_inc + update_inc) % 1000 == 0:
                             LOG.debug(
