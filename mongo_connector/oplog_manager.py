@@ -458,6 +458,8 @@ class OplogThread(threading.Thread):
                                       current_batch,
                                       last_ns,
                                       last_timestamp)
+                    current_batch = []
+                    current_doc_ids = []
 
             # update timestamp before attempting to reconnect to MongoDB,
             # after being join()'ed, or if the cursor closes
