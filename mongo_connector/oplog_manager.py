@@ -219,6 +219,7 @@ class OplogThread(threading.Thread):
             last_ns = None
             last_op = None
             current_batch = []
+            current_doc_ids = []
 
             try:
                 LOG.debug("OplogThread: about to process new oplog entries")
@@ -254,10 +255,14 @@ class OplogThread(threading.Thread):
                                 # Remove
                                 if operation == 'd':
 
+                                    current_doc_id = entry['o']['_id']
+
                                     # PreSeries
                                     if last_op and \
                                             (last_op != operation or
                                              last_ns != ns or
+                                             current_doc_id in
+                                                current_doc_ids or
                                              n % self.batch_size == 0 ) and \
                                             len(current_batch) > 0:
                                         LOG.debug(
@@ -274,21 +279,27 @@ class OplogThread(threading.Thread):
                                                           last_ns,
                                                           last_timestamp)
                                         current_batch = []
+                                        current_doc_ids = []
 
                                     last_op = operation
                                     last_timestamp = timestamp
                                     last_ns = ns
 
-                                    current_batch.append(entry['o']['_id'])
+                                    current_doc_ids.append(current_doc_id)
+                                    current_batch.append(current_doc_id)
                                     remove_inc += 1
 
                                 # Insert
                                 elif operation == 'i':
 
+                                    current_doc_id = entry['o']['_id']
+
                                     # PreSeries
                                     if last_op and \
                                             (is_gridfs_file or
                                              last_op != operation or
+                                             current_doc_id in
+                                                current_doc_ids or
                                              last_ns != ns or
                                              n % self.batch_size == 0) and \
                                             len(current_batch) > 0:
@@ -305,6 +316,7 @@ class OplogThread(threading.Thread):
                                                           last_ns,
                                                           last_timestamp)
                                         current_batch = []
+                                        current_doc_ids = []
 
                                     last_op = operation
                                     last_timestamp = timestamp
@@ -322,12 +334,15 @@ class OplogThread(threading.Thread):
                                         docman.insert_file(
                                             gridfile, ns, timestamp)
                                     else:
+                                        current_doc_ids.append(current_doc_id)
                                         current_batch.append(doc)
 
                                     upsert_inc += 1
 
                                 # Update
                                 elif operation == 'u':
+
+                                    current_doc_id = entry['o2']['_id']
 
                                     # PreSeries
                                     if last_op and \
@@ -349,13 +364,15 @@ class OplogThread(threading.Thread):
                                                           last_ns,
                                                           last_timestamp)
                                         current_batch = []
+                                        current_doc_ids = []
 
                                     last_op = operation
                                     last_timestamp = timestamp
                                     last_ns = ns
 
+                                    current_doc_ids.append(current_doc_id)
                                     current_batch.append({
-                                        "_id": entry['o2']['_id'],
+                                        "_id": current_doc_id,
                                         "update_spec": entry['o']})
 
                                     update_inc += 1
