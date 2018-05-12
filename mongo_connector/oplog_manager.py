@@ -349,6 +349,8 @@ class OplogThread(threading.Thread):
                                             (is_gridfs_file or
                                              last_op != operation or
                                              last_ns != ns or
+                                             current_doc_id in
+                                                current_doc_ids or
                                              n % self.batch_size == 0) and \
                                             len(current_batch) > 0:
                                         LOG.debug(
@@ -358,6 +360,7 @@ class OplogThread(threading.Thread):
                                             (len(current_batch),
                                              operation,
                                              last_op))
+
                                         self.execute_bulk(docman,
                                                           last_op,
                                                           current_batch,
@@ -437,6 +440,17 @@ class OplogThread(threading.Thread):
                             self.update_checkpoint(last_ts)
                             last_ts = None
 
+                    if len(current_batch) > 0:
+                        LOG.debug("Executing last bulk of the last iteration")
+                        for docman in self.doc_managers:
+                            self.execute_bulk(docman,
+                                              last_op,
+                                              current_batch,
+                                              last_ns,
+                                              last_timestamp)
+                            current_batch = []
+                            current_doc_ids = []
+
                     # update timestamp after running through oplog
                     if last_ts is not None:
                         LOG.debug("OplogThread: updating checkpoint after "
@@ -449,17 +463,9 @@ class OplogThread(threading.Thread):
                 LOG.exception(
                     "Cursor closed due to an exception. "
                     "Will attempt to reconnect.")
-
-            if len(current_batch) > 0:
-                LOG.debug("Executing last bulk of the last iteration")
-                for docman in self.doc_managers:
-                    self.execute_bulk(docman,
-                                      last_op,
-                                      current_batch,
-                                      last_ns,
-                                      last_timestamp)
-                    current_batch = []
-                    current_doc_ids = []
+                raise Exception(
+                    "Cursor closed due to an exception. "
+                    "Will attempt to reconnect.")
 
             # update timestamp before attempting to reconnect to MongoDB,
             # after being join()'ed, or if the cursor closes
