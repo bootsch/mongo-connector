@@ -786,20 +786,23 @@ class OplogThread(threading.Thread):
                                 except Exception:
                                     if self.continue_on_error:
                                         LOG.exception(
-                                            "Could not upsert document: %r" % doc)
+                                            "Could not upsert "
+                                            "document: %r" % doc)
                                         num_failed += 1
                                     else:
                                         raise
-
-                                if num % 10000 == 0:
-                                    LOG.info(
-                                        "Upserted %d out of approximately"
-                                        " %d docs from collection '%s'",
-                                        num + 1, total_docs, namespace)
                             else:
                                 dm.bulk_upsert(
                                     docs_to_process, mapped_ns, long_ts)
                                 last_id = docs_to_process[-1]["_id"]
+
+                                num += len(docs_to_process)
+
+                            if num % 10000 == 0:
+                                LOG.info(
+                                    "Upserted %d out of approximately"
+                                    " %d docs from collection '%s'",
+                                    num + 1, total_docs, namespace)
 
                             # Process next docs
                             docs_to_process = []
@@ -808,6 +811,28 @@ class OplogThread(threading.Thread):
                         pymongo.errors.OperationFailure):
                     attempts += 1
                     time.sleep(1)
+
+                if len(docs_to_process) > 0:
+                    if batch_size == 1:
+                        try:
+                            dm.upsert(
+                                docs_to_process[0], mapped_ns, long_ts)
+                            last_id = docs_to_process[0]["_id"]
+                            num += 1
+                        except Exception:
+                            if self.continue_on_error:
+                                LOG.exception(
+                                    "Could not upsert "
+                                    "document: %r" % doc)
+                                num_failed += 1
+                            else:
+                                raise
+                    else:
+                        dm.bulk_upsert(
+                            docs_to_process, mapped_ns, long_ts)
+                        last_id = docs_to_process[-1]["_id"]
+
+                        num += len(docs_to_process)
 
                 if num > 0:
                     LOG.info("Upserted %d out of approximately %d docs from "
