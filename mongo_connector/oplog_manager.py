@@ -779,9 +779,10 @@ class OplogThread(threading.Thread):
                         if len(docs_to_process) == batch_size:
                             if batch_size == 1:
                                 try:
+                                    latest_doc_id = docs_to_process[0]["_id"]
                                     dm.upsert(
                                         docs_to_process[0], mapped_ns, long_ts)
-                                    last_id = docs_to_process[0]["_id"]
+                                    last_id = latest_doc_id
                                     num += 1
                                 except Exception:
                                     if self.continue_on_error:
@@ -792,9 +793,10 @@ class OplogThread(threading.Thread):
                                     else:
                                         raise
                             else:
+                                latest_doc_id = docs_to_process[-1]["_id"]
                                 dm.bulk_upsert(
                                     docs_to_process, mapped_ns, long_ts)
-                                last_id = docs_to_process[-1]["_id"]
+                                last_id = latest_doc_id
 
                                 num += len(docs_to_process)
 
@@ -815,22 +817,24 @@ class OplogThread(threading.Thread):
                 if len(docs_to_process) > 0:
                     if batch_size == 1:
                         try:
+                            latest_doc_id = docs_to_process[0]["_id"]
                             dm.upsert(
                                 docs_to_process[0], mapped_ns, long_ts)
-                            last_id = docs_to_process[0]["_id"]
+                            last_id = latest_doc_id
                             num += 1
                         except Exception:
                             if self.continue_on_error:
                                 LOG.exception(
                                     "Could not upsert "
-                                    "document: %r" % doc)
+                                    "document: %r" % docs_to_process[0])
                                 num_failed += 1
                             else:
                                 raise
                     else:
+                        latest_doc_id = docs_to_process[-1]["_id"]
                         dm.bulk_upsert(
                             docs_to_process, mapped_ns, long_ts)
-                        last_id = docs_to_process[-1]["_id"]
+                        last_id = latest_doc_id
 
                         num += len(docs_to_process)
 
@@ -844,16 +848,16 @@ class OplogThread(threading.Thread):
 
 
         def upsert_each(dm):
-            num_failed = 0
+            # num_failed = 0
             for namespace in dump_set:
                 from_coll = self.get_collection(namespace)
-                #mapped_ns = self.namespace_config.map_namespace(namespace)
-                #total_docs = retry_until_ok(from_coll.count)
-                #num = None
+                # mapped_ns = self.namespace_config.map_namespace(namespace)
+                # total_docs = retry_until_ok(from_coll.count)
+                # num = None
 
                 docs_to_dump_v2(from_coll, dm, namespace, batch_size=1)
 
-                #for num, doc in enumerate(docs_to_dump(from_coll)):
+                # for num, doc in enumerate(docs_to_dump(from_coll)):
                 #   try:
                 #       dm.upsert(doc, mapped_ns, long_ts)
                 #   except Exception:
@@ -884,7 +888,7 @@ class OplogThread(threading.Thread):
                     LOG.info("Bulk upserting approximately %d docs from "
                              "collection '%s'",
                              total_docs, namespace)
-                    docs_to_dump_v2(from_coll, dm, mapped_ns, batch_size=500)
+                    docs_to_dump_v2(from_coll, dm, mapped_ns, batch_size=10)
                     # dm.bulk_upsert(docs_to_dump(from_coll),
                     #               mapped_ns, long_ts)
             except Exception:
