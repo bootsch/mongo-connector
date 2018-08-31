@@ -730,33 +730,124 @@ class OplogThread(threading.Thread):
                     attempts += 1
                     time.sleep(1)
 
+        def docs_to_dump_v2(from_coll, dm, namespace, batch_size=1):
+            """
+            It process all the documents in the collection and performs inserts
+            into the doc manager using its "upsert" or "bulk_upsert" depending
+            on the value of batch_size, if batch size is 1 we insert one by
+            one document, if its greater than 1 we use the bulk version.
+
+            :param from_coll: the collection to read all the documents
+            :param batch_size: the number of documents to process at the same time
+            :return:
+            """
+            last_id = None
+            attempts = 0
+            projection = self.namespace_config.projection(from_coll.full_name)
+            # Loop to handle possible AutoReconnect
+
+            mapped_ns = self.namespace_config.map_namespace(namespace)
+            total_docs = retry_until_ok(from_coll.count)
+
+            num = 0
+            num_failed = 0
+            docs_to_process = []
+
+            while attempts < 60:
+                if last_id is None:
+                    cursor = retry_until_ok(
+                        from_coll.find,
+                        projection=projection,
+                        sort=[("_id", pymongo.ASCENDING)]
+                    )
+                else:
+                    cursor = retry_until_ok(
+                        from_coll.find,
+                        {"_id": {"$gt": last_id}},
+                        projection=projection,
+                        sort=[("_id", pymongo.ASCENDING)]
+                    )
+                try:
+                    for doc in cursor:
+                        if not self.running:
+                            # Thread was joined while performing the
+                            # collection dump.
+                            dump_cancelled[0] = True
+                            raise StopIteration
+                        docs_to_process.append(doc)
+
+                        if len(docs_to_process) == batch_size:
+                            if batch_size == 1:
+                                try:
+                                    dm.upsert(
+                                        docs_to_process[0], mapped_ns, long_ts)
+                                    last_id = docs_to_process[0]["_id"]
+                                    num += 1
+                                except Exception:
+                                    if self.continue_on_error:
+                                        LOG.exception(
+                                            "Could not upsert document: %r" % doc)
+                                        num_failed += 1
+                                    else:
+                                        raise
+
+                                if num % 10000 == 0:
+                                    LOG.info(
+                                        "Upserted %d out of approximately"
+                                        " %d docs from collection '%s'",
+                                        num + 1, total_docs, namespace)
+                            else:
+                                dm.bulk_upsert(
+                                    docs_to_process, mapped_ns, long_ts)
+                                last_id = docs_to_process[-1]["_id"]
+
+                            # Process next docs
+                            docs_to_process = []
+                    break
+                except (pymongo.errors.AutoReconnect,
+                        pymongo.errors.OperationFailure):
+                    attempts += 1
+                    time.sleep(1)
+
+                if num > 0:
+                    LOG.info("Upserted %d out of approximately %d docs from "
+                             "collection '%s'",
+                             num + 1, total_docs, namespace)
+
+                if num_failed > 0:
+                    LOG.error("Failed to upsert %d docs" % num_failed)
+
+
         def upsert_each(dm):
             num_failed = 0
             for namespace in dump_set:
                 from_coll = self.get_collection(namespace)
-                mapped_ns = self.namespace_config.map_namespace(namespace)
-                total_docs = retry_until_ok(from_coll.count)
-                num = None
-                for num, doc in enumerate(docs_to_dump(from_coll)):
-                    try:
-                        dm.upsert(doc, mapped_ns, long_ts)
-                    except Exception:
-                        if self.continue_on_error:
-                            LOG.exception(
-                                "Could not upsert document: %r" % doc)
-                            num_failed += 1
-                        else:
-                            raise
-                    if num % 10000 == 0:
-                        LOG.info("Upserted %d out of approximately %d docs "
-                                 "from collection '%s'",
-                                 num + 1, total_docs, namespace)
-                if num is not None:
-                    LOG.info("Upserted %d out of approximately %d docs from "
-                             "collection '%s'",
-                             num + 1, total_docs, namespace)
-            if num_failed > 0:
-                LOG.error("Failed to upsert %d docs" % num_failed)
+                #mapped_ns = self.namespace_config.map_namespace(namespace)
+                #total_docs = retry_until_ok(from_coll.count)
+                #num = None
+
+                docs_to_dump_v2(from_coll, dm, namespace, batch_size=1)
+
+                #for num, doc in enumerate(docs_to_dump(from_coll)):
+                #   try:
+                #       dm.upsert(doc, mapped_ns, long_ts)
+                #   except Exception:
+                #       if self.continue_on_error:
+                #           LOG.exception(
+                #               "Could not upsert document: %r" % doc)
+                #           num_failed += 1
+                #       else:
+                #           raise
+                #   if num % 10000 == 0:
+                #       LOG.info("Upserted %d out of approximately %d docs "
+                #                "from collection '%s'",
+                #                num + 1, total_docs, namespace)
+                # if num is not None:
+                #    LOG.info("Upserted %d out of approximately %d docs from "
+                #             "collection '%s'",
+                #            num + 1, total_docs, namespace)
+            #if num_failed > 0:
+            #    LOG.error("Failed to upsert %d docs" % num_failed)
 
         def upsert_all(dm):
             try:
@@ -768,8 +859,9 @@ class OplogThread(threading.Thread):
                     LOG.info("Bulk upserting approximately %d docs from "
                              "collection '%s'",
                              total_docs, namespace)
-                    dm.bulk_upsert(docs_to_dump(from_coll),
-                                   mapped_ns, long_ts)
+                    docs_to_dump_v2(from_coll, dm, mapped_ns, batch_size=10000)
+                    # dm.bulk_upsert(docs_to_dump(from_coll),
+                    #               mapped_ns, long_ts)
             except Exception:
                 if self.continue_on_error:
                     LOG.exception("OplogThread: caught exception"
