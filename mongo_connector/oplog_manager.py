@@ -884,7 +884,7 @@ class OplogThread(threading.Thread):
                     LOG.info("Bulk upserting approximately %d docs from "
                              "collection '%s'",
                              total_docs, namespace)
-                    docs_to_dump_v2(from_coll, dm, mapped_ns, batch_size=1000)
+                    docs_to_dump_v2(from_coll, dm, mapped_ns, batch_size=500)
                     # dm.bulk_upsert(docs_to_dump(from_coll),
                     #               mapped_ns, long_ts)
             except Exception:
