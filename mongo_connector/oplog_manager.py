@@ -1052,7 +1052,7 @@ class OplogThread(threading.Thread):
         if timestamp is None:
             if self.collection_dump:
                 # dump collection and update checkpoint
-                timestamp, last_doc_id = self.dump_collection()
+                timestamp = self.dump_collection()
                 self.update_checkpoint(timestamp)
                 self.update_docid(timestamp)
                 if timestamp is None:
