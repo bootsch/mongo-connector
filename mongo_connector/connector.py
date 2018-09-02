@@ -115,6 +115,12 @@ class Connector(threading.Thread):
         self.oplog_checkpoint = kwargs.pop('oplog_checkpoint',
                                            'oplog.timestamp')
 
+        # The name of the path where we will store the checkpoint files during
+        # a dump all process. Each file will contains the last doc id processed
+        # by doc manager and namespace
+        self.lastid_checkpoint_path = \
+            kwargs.pop('lastid_checkpoint_path', None)
+
         # The set of OplogThreads created
         self.shard_set = {}
 
@@ -199,6 +205,7 @@ class Connector(threading.Thread):
             mongo_address=config['mainAddress'],
             doc_managers=config['docManagers'],
             oplog_checkpoint=os.path.abspath(config['oplogFile']),
+            lastid_checkpoint_path=os.path.abspath(config['lastIdPath']),
             collection_dump=(not config['noDump']),
             batch_size=config['batchSize'],
             continue_on_error=config['continueOnError'],
@@ -384,6 +391,7 @@ class Connector(threading.Thread):
             # non sharded configuration
             oplog = OplogThread(
                 self.main_conn, self.doc_managers, self.oplog_progress,
+                self.lastid_checkpoint_path,
                 self.namespace_config, **self.kwargs)
             self.shard_set[0] = oplog
             LOG.info('MongoConnector: Starting connection thread %s' %
@@ -441,6 +449,7 @@ class Connector(threading.Thread):
                     self.update_version_from_client(shard_conn)
                     oplog = OplogThread(
                         shard_conn, self.doc_managers, self.oplog_progress,
+                        self.lastid_checkpoint_path,
                         self.namespace_config, mongos_client=self.main_conn,
                         **self.kwargs)
                     self.shard_set[shard_id] = oplog
@@ -508,6 +517,25 @@ def get_config_options():
         "oplog-timestamp config file be emptied - otherwise "
         "the connector will miss some documents and behave "
         "incorrectly.")
+
+    lastid_files_path = add_option(
+        config_key="lastIdPath",
+        default=None,
+        type=str)
+
+    # -l is to specify the path for dump process. This path is used by
+    # the system to store the last document id processed per doc manager
+    # and namespace in a dump all process. This allows for quick
+    # recovery from failure.
+    lastid_files_path.add_cli(
+        "-l", "--last-id-path", dest="lastid_files_path", help=
+        "Specify the name of the path where the dump all process"
+        "stores the last doc id processed during the dump. "
+        "This folder is used by the system to store the files "
+        "per doc manager and namespace to control the status of the process. "
+        "This allows for quick recovery from failure of the dump process. "
+        "By default this is None, which do not use path and do not make use"
+        "of the recovery feature. ")
 
     no_dump = add_option(
         config_key="noDump",

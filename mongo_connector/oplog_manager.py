@@ -21,9 +21,12 @@ try:
     import Queue as queue
 except ImportError:
     import queue
+import os
 import sys
 import time
 import threading
+import json
+import shutil
 
 import pymongo
 
@@ -82,7 +85,8 @@ class OplogThread(threading.Thread):
     Calls the appropriate method on DocManagers for each relevant oplog entry.
     """
     def __init__(self, primary_client, doc_managers,
-                 oplog_progress_dict, namespace_config,
+                 oplog_progress_dict, lastid_checkpoint_path,
+                 namespace_config,
                  mongos_client=None, **kwargs):
         super(OplogThread, self).__init__()
 
@@ -110,6 +114,10 @@ class OplogThread(threading.Thread):
         # A dictionary that stores OplogThread/timestamp pairs.
         # Represents the last checkpoint for a OplogThread.
         self.oplog_progress = oplog_progress_dict
+
+        # A path where the dump all process will leave the checkpoints that
+        # signals the last processed document.
+        self.lastid_checkpoint_path = lastid_checkpoint_path
 
         # The namespace configuration
         self.namespace_config = namespace_config
@@ -741,7 +749,8 @@ class OplogThread(threading.Thread):
             :param batch_size: the number of documents to process at the same time
             :return:
             """
-            last_id = None
+            last_id = self.read_dump_progress(dm, namespace)
+
             attempts = 0
             projection = self.namespace_config.projection(from_coll.full_name)
             # Loop to handle possible AutoReconnect
@@ -783,6 +792,10 @@ class OplogThread(threading.Thread):
                                     dm.upsert(
                                         docs_to_process[0], mapped_ns, long_ts)
                                     last_id = latest_doc_id
+
+                                    self.write_dump_progress(
+                                        dm, namespace, last_id)
+
                                     num += 1
                                 except Exception:
                                     if self.continue_on_error:
@@ -797,6 +810,9 @@ class OplogThread(threading.Thread):
                                 dm.bulk_upsert(
                                     docs_to_process, mapped_ns, long_ts)
                                 last_id = latest_doc_id
+
+                                self.write_dump_progress(
+                                    dm, namespace, last_id)
 
                                 num += len(docs_to_process)
 
@@ -821,6 +837,10 @@ class OplogThread(threading.Thread):
                             dm.upsert(
                                 docs_to_process[0], mapped_ns, long_ts)
                             last_id = latest_doc_id
+
+                            self.write_dump_progress(
+                                dm, namespace, last_id)
+
                             num += 1
                         except Exception:
                             if self.continue_on_error:
@@ -836,6 +856,9 @@ class OplogThread(threading.Thread):
                             docs_to_process, mapped_ns, long_ts)
                         last_id = latest_doc_id
 
+                        self.write_dump_progress(
+                            dm, namespace, last_id)
+
                         num += len(docs_to_process)
 
                 if num > 0:
@@ -846,6 +869,7 @@ class OplogThread(threading.Thread):
                 if num_failed > 0:
                     LOG.error("Failed to upsert %d docs" % num_failed)
 
+            return last_id
 
         def upsert_each(dm):
             # num_failed = 0
@@ -1018,8 +1042,9 @@ class OplogThread(threading.Thread):
         if timestamp is None:
             if self.collection_dump:
                 # dump collection and update checkpoint
-                timestamp = self.dump_collection()
+                timestamp, last_doc_id = self.dump_collection()
                 self.update_checkpoint(timestamp)
+                self.update_docid(timestamp)
                 if timestamp is None:
                     return None, True
             else:
@@ -1112,6 +1137,74 @@ class OplogThread(threading.Thread):
                   str(ret_val))
         self.checkpoint = ret_val
         return ret_val
+
+    def write_dump_progress(self, dm, namespace, last_id):
+        """ Writes dump all progress to file provided by user
+        """
+
+        if self.lastid_checkpoint_path is None:
+            return None
+
+        checkpoint_file = "%s_%s_%s.doc" % \
+                          (self.lastid_checkpoint_path,
+                           dm.__class__.__name__,
+                           namespace)
+
+        # write to temp file
+        backup_file = checkpoint_file + '.backup'
+        os.rename(checkpoint_file, backup_file)
+
+        # for each of the threads write to file
+        with open(self.checkpoint_file, 'w') as dest:
+            try:
+                dest.write(last_id)
+            except IOError:
+                # Basically wipe the file, copy from backup
+                dest.truncate()
+                with open(backup_file, 'r') as backup:
+                    shutil.copyfile(backup, dest)
+
+        os.remove(backup_file)
+
+    def read_dump_progress(self, dm, namespace):
+        """Reads dump all progress from file provided by user.
+        This method is only called once before any threads are spanwed.
+        """
+
+        if self.lastid_checkpoint_path is None:
+            return None
+
+        last_id = None
+
+        checkpoint_file = "%s_%s_%s.doc" % \
+                          (self.lastid_checkpoint_path,
+                           dm.__class__.__name__,
+                           namespace)
+
+        # Check for empty file
+        try:
+            if os.stat(checkpoint_file).st_size == 0:
+                LOG.info("MongoConnector: Empty dump all progress file.")
+                return None
+        except OSError:
+            return None
+
+        with open(checkpoint_file, 'r') as progress_file:
+            try:
+                last_id = json.load(progress_file)
+            except ValueError:
+                LOG.exception(
+                    'Cannot read dump all progress file "%s". '
+                    'It may be corrupt after Mongo Connector was shut down'
+                    'uncleanly. You can try to recover from a backup file '
+                    '(may be called "%s.backup") or create a new progress file '
+                    'starting at the last document id well processed. '
+                    % (self.docid_checkpoint, self.docid_checkpoint))
+                return
+            # data format:
+            # [name, timestamp] = replica set
+            # [[name, timestamp], [name, timestamp], ...] = sharded cluster
+        return last_id
 
     def rollback(self):
         """Rollback target system to consistent state.
