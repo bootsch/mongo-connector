@@ -1169,7 +1169,7 @@ class OplogThread(threading.Thread):
         os.rename(checkpoint_file, backup_file)
 
         # for each of the threads write to file
-        with open(self.checkpoint_file, 'w') as dest:
+        with open(checkpoint_file, 'w') as dest:
             try:
                 dest.write(json.dumps({"last_id": str(last_id)}))
             except IOError:
