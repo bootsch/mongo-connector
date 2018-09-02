@@ -205,7 +205,8 @@ class Connector(threading.Thread):
             mongo_address=config['mainAddress'],
             doc_managers=config['docManagers'],
             oplog_checkpoint=os.path.abspath(config['oplogFile']),
-            lastid_checkpoint_path=os.path.abspath(config['lastIdPath']),
+            lastid_checkpoint_path=os.path.abspath(
+                config['lastIdPath']) if 'lastIdPath' in config else None,
             collection_dump=(not config['noDump']),
             batch_size=config['batchSize'],
             continue_on_error=config['continueOnError'],
@@ -520,7 +521,7 @@ def get_config_options():
 
     lastid_files_path = add_option(
         config_key="lastIdPath",
-        default=None,
+        default="./lastid",
         type=str)
 
     # -l is to specify the path for dump process. This path is used by
