@@ -664,6 +664,9 @@ class OplogThread(threading.Thread):
         """
 
         timestamp = retry_until_ok(self.get_last_oplog_timestamp)
+
+        LOG.error("The last timestamp to use is: {0}".format(timestamp))
+
         if timestamp is None:
             return None
         long_ts = util.bson_ts_to_long(timestamp)
@@ -751,7 +754,12 @@ class OplogThread(threading.Thread):
             :param batch_size: the number of documents to process at the same time
             :return:
             """
+            LOG.error("Dumping all the documents of the collection: {0}".
+                      format(from_coll.full_name))
+
             last_id = self.read_dump_progress(dm, namespace)
+
+            LOG.error("Start dump from document: {0}".format(str(last_id)))
 
             attempts = 0
             projection = self.namespace_config.projection(from_coll.full_name)
@@ -819,7 +827,7 @@ class OplogThread(threading.Thread):
                                 num += len(docs_to_process)
 
                             if num % 10000 == 0:
-                                LOG.info(
+                                LOG.error(
                                     "Upserted %d out of approximately"
                                     " %d docs from collection '%s'",
                                     num + 1, total_docs, namespace)
@@ -832,44 +840,44 @@ class OplogThread(threading.Thread):
                     attempts += 1
                     time.sleep(1)
 
-                if len(docs_to_process) > 0:
-                    if batch_size == 1:
-                        try:
-                            latest_doc_id = docs_to_process[0]["_id"]
-                            dm.upsert(
-                                docs_to_process[0], mapped_ns, long_ts)
-                            last_id = latest_doc_id
-
-                            self.write_dump_progress(
-                                dm, namespace, last_id)
-
-                            num += 1
-                        except Exception:
-                            if self.continue_on_error:
-                                LOG.exception(
-                                    "Could not upsert "
-                                    "document: %r" % docs_to_process[0])
-                                num_failed += 1
-                            else:
-                                raise
-                    else:
-                        latest_doc_id = docs_to_process[-1]["_id"]
-                        dm.bulk_upsert(
-                            docs_to_process, mapped_ns, long_ts)
+            if len(docs_to_process) > 0:
+                if batch_size == 1:
+                    try:
+                        latest_doc_id = docs_to_process[0]["_id"]
+                        dm.upsert(
+                            docs_to_process[0], mapped_ns, long_ts)
                         last_id = latest_doc_id
 
                         self.write_dump_progress(
                             dm, namespace, last_id)
 
-                        num += len(docs_to_process)
+                        num += 1
+                    except Exception:
+                        if self.continue_on_error:
+                            LOG.exception(
+                                "Could not upsert "
+                                "document: %r" % docs_to_process[0])
+                            num_failed += 1
+                        else:
+                            raise
+                else:
+                    latest_doc_id = docs_to_process[-1]["_id"]
+                    dm.bulk_upsert(
+                        docs_to_process, mapped_ns, long_ts)
+                    last_id = latest_doc_id
 
-                if num > 0:
-                    LOG.info("Upserted %d out of approximately %d docs from "
-                             "collection '%s'",
-                             num + 1, total_docs, namespace)
+                    self.write_dump_progress(
+                        dm, namespace, last_id)
 
-                if num_failed > 0:
-                    LOG.error("Failed to upsert %d docs" % num_failed)
+                    num += len(docs_to_process)
+
+            if num > 0:
+                LOG.error("Upserted %d out of approximately %d docs from "
+                         "collection '%s'",
+                         num + 1, total_docs, namespace)
+
+            if num_failed > 0:
+                LOG.error("Failed to upsert %d docs" % num_failed)
 
             return last_id
 
@@ -1153,6 +1161,9 @@ class OplogThread(threading.Thread):
                            dm.__class__.__name__,
                            namespace)
 
+        LOG.error("Dumping the last id {0} processed to file: {1}".
+                  format(last_id, checkpoint_file))
+
         # write to temp file
         backup_file = checkpoint_file + '.backup'
         os.rename(checkpoint_file, backup_file)
@@ -1185,6 +1196,9 @@ class OplogThread(threading.Thread):
                            dm.__class__.__name__,
                            namespace)
 
+        LOG.error("Loading the last id processed from file: {0}".
+                  format(checkpoint_file))
+
         # Check for empty file
         try:
             if os.stat(checkpoint_file).st_size == 0:
@@ -1197,6 +1211,7 @@ class OplogThread(threading.Thread):
             try:
                 last_id_obj = json.load(progress_file)
                 last_id = ObjectId(last_id_obj["last_id"])
+                LOG.error("Last id processed: {0}".format(last_id))
             except ValueError:
                 LOG.exception(
                     'Cannot read dump all progress file "%s". '
