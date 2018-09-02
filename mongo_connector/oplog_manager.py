@@ -28,6 +28,8 @@ import threading
 import json
 import shutil
 
+from bson import ObjectId
+
 import pymongo
 
 from pymongo import CursorType, errors as pymongo_errors
@@ -1145,8 +1147,9 @@ class OplogThread(threading.Thread):
         if self.lastid_checkpoint_path is None:
             return None
 
-        checkpoint_file = "%s_%s_%s.doc" % \
+        checkpoint_file = "%s/%s.%s.%s.doc" % \
                           (self.lastid_checkpoint_path,
+                           dm.__class__.__module__,
                            dm.__class__.__name__,
                            namespace)
 
@@ -1157,7 +1160,7 @@ class OplogThread(threading.Thread):
         # for each of the threads write to file
         with open(self.checkpoint_file, 'w') as dest:
             try:
-                dest.write(last_id)
+                dest.write(json.dumps({"last_id": str(last_id)}))
             except IOError:
                 # Basically wipe the file, copy from backup
                 dest.truncate()
@@ -1176,8 +1179,9 @@ class OplogThread(threading.Thread):
 
         last_id = None
 
-        checkpoint_file = "%s_%s_%s.doc" % \
+        checkpoint_file = "%s/%s.%s.%s.doc" % \
                           (self.lastid_checkpoint_path,
+                           dm.__class__.__module__,
                            dm.__class__.__name__,
                            namespace)
 
@@ -1191,7 +1195,8 @@ class OplogThread(threading.Thread):
 
         with open(checkpoint_file, 'r') as progress_file:
             try:
-                last_id = json.load(progress_file)
+                last_id_obj = json.load(progress_file)
+                last_id = ObjectId(last_id_obj["last_id"])
             except ValueError:
                 LOG.exception(
                     'Cannot read dump all progress file "%s". '
