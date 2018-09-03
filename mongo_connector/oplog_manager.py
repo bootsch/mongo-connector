@@ -1054,7 +1054,6 @@ class OplogThread(threading.Thread):
                 # dump collection and update checkpoint
                 timestamp = self.dump_collection()
                 self.update_checkpoint(timestamp)
-                self.update_docid(timestamp)
                 if timestamp is None:
                     return None, True
             else:
@@ -1219,7 +1218,7 @@ class OplogThread(threading.Thread):
                     'uncleanly. You can try to recover from a backup file '
                     '(may be called "%s.backup") or create a new progress file '
                     'starting at the last document id well processed. '
-                    % (self.docid_checkpoint, self.docid_checkpoint))
+                    % (self.checkpoint_file, self.checkpoint_file))
                 return
             # data format:
             # [name, timestamp] = replica set
