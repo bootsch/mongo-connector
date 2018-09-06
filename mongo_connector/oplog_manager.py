@@ -1163,9 +1163,11 @@ class OplogThread(threading.Thread):
         LOG.error("Dumping the last id {0} processed to file: {1}".
                   format(last_id, checkpoint_file))
 
-        # write to temp file
-        backup_file = checkpoint_file + '.backup'
-        os.rename(checkpoint_file, backup_file)
+        backup_file = None
+        if os.path.exists(checkpoint_file):
+            # write to temp file
+            backup_file = checkpoint_file + '.backup'
+            os.rename(checkpoint_file, backup_file)
 
         # for each of the threads write to file
         with open(checkpoint_file, 'w') as dest:
@@ -1174,10 +1176,12 @@ class OplogThread(threading.Thread):
             except IOError:
                 # Basically wipe the file, copy from backup
                 dest.truncate()
-                with open(backup_file, 'r') as backup:
-                    shutil.copyfile(backup, dest)
+                if backup_file:
+                    with open(backup_file, 'r') as backup:
+                        shutil.copyfile(backup, dest)
 
-        os.remove(backup_file)
+        if backup_file:
+            os.remove(backup_file)
 
     def read_dump_progress(self, dm, namespace):
         """Reads dump all progress from file provided by user.
@@ -1186,8 +1190,6 @@ class OplogThread(threading.Thread):
 
         if self.lastid_checkpoint_path is None:
             return None
-
-        last_id = None
 
         checkpoint_file = "%s/%s.%s.%s.doc" % \
                           (self.lastid_checkpoint_path,
@@ -1211,6 +1213,7 @@ class OplogThread(threading.Thread):
                 last_id_obj = json.load(progress_file)
                 last_id = ObjectId(last_id_obj["last_id"])
                 LOG.error("Last id processed: {0}".format(last_id))
+                return last_id
             except ValueError:
                 LOG.exception(
                     'Cannot read dump all progress file "%s". '
@@ -1218,12 +1221,11 @@ class OplogThread(threading.Thread):
                     'uncleanly. You can try to recover from a backup file '
                     '(may be called "%s.backup") or create a new progress file '
                     'starting at the last document id well processed. '
-                    % (self.checkpoint_file, self.checkpoint_file))
-                return
+                    % (checkpoint_file, checkpoint_file))
+                return None
             # data format:
             # [name, timestamp] = replica set
             # [[name, timestamp], [name, timestamp], ...] = sharded cluster
-        return last_id
 
     def rollback(self):
         """Rollback target system to consistent state.
